@@ -1,0 +1,10 @@
+
+{
+  "components": [
+    { "id": "motor_001", "type": "motor", "x": 0, "y": 0, "z": 0 },
+    { "id": "sensor_001", "type": "sensor", "x": 2, "y": 0, "z": 0 },
+    { "id": "controller", "type": "cpu", "x": 1, "y": 2, "z": 0 }
+  ]
+}
+
+

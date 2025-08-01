@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!-- Valencia Walker's membership.html - Professional Apple-like style -->
+    <title>Membership | OpenQQuantify</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap">
+    <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
+
+    <style>
+        /* Reset & base */
+        *, *::before, *::after {
+            box-sizing: border-box;
+        }
+        body {
+            margin: 0;
+            padding: 0 20px 40px 20px;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
+                Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+            background-color: #fff;
+            color: #1d1d1f;
+            line-height: 1.5;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        a {
+            color: #0071e3; /* blue */
+            text-decoration: none;
+            transition: color 0.3s ease;
+        }
+        a:hover {
+            color: #005bb5;
+        }
+        /* Back arrow */
+        .back-arrow {
+            position: fixed;
+            top: 24px;
+            left: 24px;
+            width: 24px;
+            height: 24px;
+            background: url('{{ url_for('static', filename='back_arrow.png') }}') no-repeat center center;
+            background-size: contain;
+            cursor: pointer;
+            filter: none;
+            transition: transform 0.3s ease;
+            z-index: 1001;
+        }
+        .back-arrow:hover {
+            transform: scale(1.2);
+        }
+        /* Logo */
+        .logo-container {
+            margin: 60px 0 40px;
+            text-align: center;
+        }
+        .logo {
+            width: 140px;
+            height: auto;
+        }
+        /* Header */
+        h1 {
+            font-weight: 700;
+            font-size: 3rem;
+            margin-bottom: 8px;
+            text-align: center;
+            letter-spacing: -0.02em;
+            color: #1d1d1f;
+        }
+        /* Membership messages */
+        .membership-message {
+            font-size: 1.125rem;
+            color: #3a3a3c;
+            text-align: center;
+            max-width: 620px;
+            margin-bottom: 24px;
+        }
+        /* Membership benefits */
+        .membership-details-box {
+            background-color: #f5f5f7;
+            border-radius: 12px;
+            padding: 32px 36px;
+            max-width: 620px;
+            box-shadow: 0 10px 30px rgb(0 0 0 / 0.05);
+            margin-bottom: 48px;
+        }
+        .membership-details-box h2 {
+            color: #1d1d1f;
+            font-weight: 600;
+            font-size: 1.5rem;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .membership-details-box ul {
+            list-style-type: disc;
+            padding-left: 24px;
+            color: #3a3a3c;
+            font-size: 1rem;
+        }
+        .membership-details-box ul li {
+            margin-bottom: 12px;
+        }
+        /* Buttons */
+        .button-container {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            flex-wrap: wrap;
+            max-width: 620px;
+            margin-bottom: 60px;
+        }
+        .membership-button {
+            background-color: #0071e3;
+            color: #fff;
+            padding: 14px 28px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1.125rem;
+            font-weight: 600;
+            box-shadow: 0 6px 12px rgb(0 113 227 / 0.4);
+            transition: background-color 0.3s ease, transform 0.3s ease;
+            min-width: 200px;
+            user-select: none;
+        }
+        .membership-button:hover {
+            background-color: #005bb5;
+            transform: translateY(-2px);
+        }
+        /* Stripe card element */
+        #card-element {
+            width: 100%;
+            max-width: 420px;
+            margin: 0 auto 30px auto;
+            padding: 16px;
+            background-color: #fff;
+            border: 1px solid #d2d2d7;
+            border-radius: 8px;
+            box-shadow: inset 0 1px 3px rgb(0 0 0 / 0.1);
+        }
+        #card-errors {
+            color: #d0021b;
+            font-weight: 600;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        /* Support message */
+        .support-message {
+            text-align: center;
+            font-size: 1.125rem;
+            max-width: 620px;
+            margin-bottom: 60px;
+            color: #6e6e73;
+        }
+        /* Footer */
+        footer {
+            background-color: #f5f5f7;
+            color: #6e6e73;
+            padding: 24px 15px;
+            text-align: center;
+            font-size: 0.9rem;
+            line-height: 1.4;
+            border-top: 1px solid #d2d2d7;
+            width: 100%;
+            max-width: 100vw;
+            position: relative;
+            bottom: 0;
+            user-select: none;
+        }
+        footer a {
+            color: #0071e3;
+        }
+        footer a:hover {
+            color: #005bb5;
+            text-decoration: underline;
+        }
+        /* Responsive */
+        @media (max-width: 600px) {
+            .button-container {
+                flex-direction: column;
+                gap: 16px;
+            }
+            .membership-button {
+                width: 100%;
+                min-width: auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <a href="/" class="back-arrow" aria-label="Go back"></a>
+
+    <div class="logo-container">
+        <img src="{{ url_for('static', filename='images/oq_logo.png') }}" alt="OpenQQuantify Logo" class="logo">
+    </div>
+
+    <h1>Become a Member</h1>
+
+    <p class="membership-message">Step 1. Choose a membership plan and receive tokens each month.</p>
+    <p class="membership-message">Step 2. Contact us at <a href="mailto:connect@openqquantify.com">connect@openqquantify.com</a> after payment to get early access to our platform.</p>
+
+    <section class="membership-details-box" aria-label="Membership benefits">
+        <h2>Membership Benefits</h2>
+        <ul>
+            <li>Access to our platform</li>
+            <li>Large Language Model (LLM)</li>
+            <li>2D Schematic Generation</li>
+            <li>3D Game Engine Simulation</li>
+            <li>Monthly Tokens</li>
+        </ul>
+    </section>
+
+    <div class="button-container" role="group" aria-label="Subscription options">
+        <button class="membership-button" data-amount="20" type="button">Subscribe $20/month - 2000 tokens</button>
+        <button class="membership-button" data-amount="50" type="button">Subscribe $50/month - 7000 tokens</button>
+        <button class="membership-button" data-amount="100" type="button">Subscribe $100/month - 20000 tokens</button>
+    </div>
+
+    <div id="card-element" aria-label="Payment card input">
+        <!-- Stripe Element will be inserted here -->
+    </div>
+
+    <div id="card-errors" role="alert"></div>
+
+    <p class="support-message">
+        Join us for our stakeholders meeting to collaborate and develop the technology the community needs. Contact us at <a href="mailto:connect@openqquantify.com">connect@openqquantify.com</a>.
+    </p>
+
+    <footer>
+        <p>&copy; 2024 OpenQQuantify</p>
+        <p>
+            <a href="/privacy-policy">Privacy Policy</a> |
+            <a href="/terms-and-conditions">Terms and Conditions</a>
+        </p>
+        <p>
+            OpenQQuantify is registered as a Canadian Federally Incorporated Business (ID: 14839323 Canada Inc.). Donations are not tax-deductible.
+            <br>
+            If you have any questions, please contact us at <a href="mailto:connect@openqquantify.com">connect@openqquantify.com</a>.
+        </p>
+        <p>
+            We use industry-standard SSL encryption to protect your information. Your payment will be processed securely by Stripe.
+        </p>
+    </footer>
+
+    <script>
+        var stripe = Stripe('pk_live_51PLv10FZ4exTU5ChAw7rBEOsNXrmp0Sv8FMcTaOcttnjhtCUaLtUvExwAoLgURNpgnpfqjHXmVt6QANDzuVNWZo900inrB8keT');
+
+        document.querySelectorAll('.membership-button').forEach(button => {
+            button.addEventListener('click', function () {
+                var amount = this.getAttribute('data-amount');
+                fetch('/create-membership-session', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ amount: amount }),
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        alert(data.error);
+                    } else {
+                        stripe.redirectToCheckout({ sessionId: data.id });
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert("An error occurred. Please try again.");
+                });
+            });
+        });
+    </script>
+</body>
+</html>

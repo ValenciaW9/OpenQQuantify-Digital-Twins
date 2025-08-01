@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Ohio Field Drone Agricultural Simulation</title>
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.124/Build/Cesium/Cesium.js"></script>
+  <link href="https://cesium.com/downloads/cesiumjs/releases/1.124/Build/Cesium/Widgets/widgets.css" rel="stylesheet"/>
+  <style>
+    html, body, #cesiumContainer {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      font-family: sans-serif;
+    }
+    #controls {
+      position: absolute;
+      top: 10px; left: 10px;
+      background: rgba(42,42,42,0.8);
+      color: #fff;
+      padding: 10px;
+      border-radius: 4px;
+      font-size:14px;
+      max-width:320px;
+      z-index:1000;
+    }
+    #controls label, #controls button, #controls select {
+      display: block;
+      margin-bottom:8px;
+    }
+    #controls input[type=number], #controls input[type=text], #controls select {
+      width:100%;
+      padding:5px;
+      border-radius:3px;
+      border:none;
+    }
+    #controls button {
+      width:100%;
+      padding:8px;
+      border:none;
+      border-radius:3px;
+      background-color:#4CAF50;
+      color:white;
+      cursor:pointer;
+      margin-bottom:8px;
+    }
+    #controls button:hover { background-color:#45a049; }
+    #log {
+      position:absolute;
+      bottom:0; left:0;
+      width:100%;
+      max-height:200px;
+      overflow-y:auto;
+      background:rgba(0,0,0,0.7);
+      color:#0f0;
+      font-size:12px;
+      padding:5px;
+      font-family:monospace;
+      z-index:1000;
+    }
+  </style>
+</head>
+<body>
+  <div id="cesiumContainer"></div>
+
+  <div id="controls">
+    <label for="aircraftTypeSelect">Select Aircraft Type:</label>
+    <select id="aircraftTypeSelect">
+      <option value="drone" selected>Drone</option>
+      <option value="f16">F-16 Jet</option>
+      <option value="b36">B-36 Bomber</option>
+    </select>
+
+    <label for="countInput">Number of Aircraft to Spawn:</label>
+    <input id="countInput" type="number" value="3" min="1" max="100"/>
+
+    <!-- ADVANCED PARAMS (optional) -->
+    <label for="dtInput">Time Step dt (e.g. 0.1, 0.01):</label>
+    <input id="dtInput" type="text" placeholder="Leave blank for basic mode"/>
+
+    <label for="pitchInput">Target Pitch (deg):</label>
+    <input id="pitchInput" type="text" placeholder="5"/>
+
+    <label for="bankInput">Target Bank (deg):</label>
+    <input id="bankInput" type="text" placeholder="0"/>
+
+    <label for="throttleInput">Throttle (e.g. 1.2 => accelerate):</label>
+    <input id="throttleInput" type="text" placeholder="1.0"/>
+
+    <button id="spawnBtn">Spawn Drones</button>
+    <button id="clearBtn" style="background-color:#f44336;">Clear</button>
+
+    <p>
+      Use these keys for drone functions (only when not in manual mode):<br>
+      <strong>S</strong> – Scan environment over field<br>
+      <strong>L</strong> – Land and collect soil sample<br>
+      <strong>M</strong> – Toggle manual control (with Arrow keys for repositioning)
+    </p>
+  </div>
+
+  <div id="log"></div>
+
+  <script type="module">
+    // ------------------------------------------------------------
+    // 1) Cesium Setup over Ohio
+    // ------------------------------------------------------------
+    Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJlNmQzM2IzYy1iNmZmLTQzOTAtODI5NC00MzE2MzY1MTdmOGQiLCJpZCI6MjQxODYyLCJpYXQiOjE3MjY0NTk1MjJ9.XhN4UNgKITt-KoENllwyeEe5CCfcr5QZ1L90ToHUt14';
+
+    const viewer = new Cesium.Viewer('cesiumContainer', {
+      terrain: Cesium.Terrain.fromWorldTerrain(),
+      shouldAnimate: true,
+      timeline: true,
+      animation: true,
+      sceneModePicker: false,
+      baseLayerPicker: true
+    });
+
+    // Optionally add 3D buildings or other overlays
+    Cesium.createOsmBuildingsAsync().then(tileset => {
+      viewer.scene.primitives.add(tileset);
+    });
+
+    function log(msg) {
+      const logDiv = document.getElementById('log');
+      const time = new Date().toLocaleTimeString();
+      logDiv.textContent += `[${time}] ${msg}\n`;
+      logDiv.scrollTop = logDiv.scrollHeight;
+    }
+
+    // ------------------------------------------------------------
+    // 2) Global Data and Constants
+    // ------------------------------------------------------------
+    let aircraftEntities = [];
+    let lastPathUpdateWallTime = 0;
+    const PATH_UPDATE_INTERVAL = 10.0;
+    const PATH_POINTS = 3;
+
+    // Ohio bounding box (for random spawns)
+    const OHIO_BOUNDS = {
+      west: -84.82,
+      east: -80.52,
+      south: 38.40,
+      north: 41.98
+    };
+
+    // Define a specific agricultural field within Ohio (approximate)
+    const FIELD_BOUNDS = {
+      west: -83.05,
+      east: -83.00,
+      south: 39.95,
+      north: 40.00
+    };
+
+    // Ion asset info
+    const aircraftTypes = {
+      drone: {
+        name: 'Drone',
+        assetId: 2925977,
+        scale: 1.0,
+        minAltitude: 100,
+        maxAltitude: 300
+      },
+      f16: {
+        name: 'F-16 Jet',
+        assetId: 3008859,
+        scale: 0.6,
+        minAltitude: 500,
+        maxAltitude: 8000
+      },
+      b36: {
+        name: 'B-36 Bomber',
+        assetId: 3008858,
+        scale: 1.0,
+        minAltitude: 1000,
+        maxAltitude: 9000
+      }
+    };
+
+    // ------------------------------------------------------------
+    // 3) Spawning Drones (with agricultural task capability)
+    // ------------------------------------------------------------
+    async function spawnFromServer() {
+      const typeKey = document.getElementById('aircraftTypeSelect').value;
+      const countVal = parseInt(document.getElementById('countInput').value, 10);
+
+      if (isNaN(countVal) || countVal < 1) {
+        log("Invalid aircraft count.");
+        return;
+      }
+      if (!aircraftTypes[typeKey]) {
+        log("Unknown aircraft type. Aborting.");
+        return;
+      }
+
+      // Load the Ion model resource.
+      let modelResource;
+      try {
+        modelResource = await Cesium.IonResource.fromAssetId(aircraftTypes[typeKey].assetId);
+      } catch(e) {
+        log("Error loading Ion resource: " + e);
+        return;
+      }
+
+      // Gather advanced parameters (optional)
+      const dtVal       = document.getElementById('dtInput').value.trim();
+      const pitchVal    = document.getElementById('pitchInput').value.trim();
+      const bankVal     = document.getElementById('bankInput').value.trim();
+      const throttleVal = document.getElementById('throttleInput').value.trim();
+
+      const params = new URLSearchParams();
+      params.set("type", typeKey);
+      params.set("count", countVal);
+      if (dtVal)       { params.set("dt", dtVal); }
+      if (pitchVal)    { params.set("pitch", pitchVal); }
+      if (bankVal)     { params.set("bank", bankVal); }
+      if (throttleVal) { params.set("throttle", throttleVal); }
+
+      // For this simulation, generate serverData locally.
+      let serverData = [];
+      for (let i = 0; i < countVal; i++) {
+        const spawnLon = Cesium.Math.lerp(OHIO_BOUNDS.west, OHIO_BOUNDS.east, Math.random());
+        const spawnLat = Cesium.Math.lerp(OHIO_BOUNDS.south, OHIO_BOUNDS.north, Math.random());
+        const spawnAlt = Cesium.Math.lerp(aircraftTypes[typeKey].minAltitude, aircraftTypes[typeKey].maxAltitude, Math.random());
+        serverData.push({
+          spawnLon,
+          spawnLat,
+          spawnAlt,
+          speed: 20.0,
+          trajectoryType: "random",
+          name: typeKey === "drone" ? `Drone #${aircraftEntities.length + 1}` : `${aircraftTypes[typeKey].name} #${aircraftEntities.length + 1}`
+        });
+      }
+      log("Simulated server data generated.");
+
+      const nowTime = viewer.clock.currentTime;
+      let spawnedCount = 0;
+
+      for (const item of serverData) {
+        if (typeof item.spawnLon === "number" && typeof item.spawnLat === "number") {
+          const spawnPos = Cesium.Cartesian3.fromDegrees(item.spawnLon, item.spawnLat, item.spawnAlt);
+          const posProp = new Cesium.SampledPositionProperty();
+          posProp.addSample(nowTime, spawnPos);
+
+          const entityName = item.name || `${typeKey} #${aircraftEntities.length+1}`;
+          const entity = viewer.entities.add({
+            name: entityName,
+            availability: new Cesium.TimeIntervalCollection([
+              new Cesium.TimeInterval({
+                start: Cesium.JulianDate.clone(nowTime),
+                stop: Cesium.JulianDate.addHours(nowTime, 24, new Cesium.JulianDate())
+              })
+            ]),
+            position: posProp,
+            orientation: new Cesium.VelocityOrientationProperty(posProp),
+            model: {
+              uri: modelResource,
+              scale: aircraftTypes[typeKey].scale,
+              minimumPixelSize: 64
+            },
+            label: {
+              text: entityName,
+              font: '14pt sans-serif',
+              fillColor: Cesium.Color.YELLOW,
+              outlineColor: Cesium.Color.BLACK,
+              style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+              verticalOrigin: Cesium.VerticalOrigin.BOTTOM
+            },
+            path: new Cesium.PathGraphics({
+              width: 2,
+              leadTime: 60,
+              trailTime: 300,
+              resolution: 1,
+              material: Cesium.Color.YELLOW
+            })
+          });
+
+          // Set flight parameters.
+          entity.flightParams = {
+            speed: item.speed || 20.0,
+            trajectoryType: item.trajectoryType || "random",
+            minAltitude: aircraftTypes[typeKey].minAltitude,
+            maxAltitude: aircraftTypes[typeKey].maxAltitude
+          };
+          entity.lastSampleTime = Cesium.JulianDate.clone(nowTime);
+
+          // For drones, add agricultural task flags.
+          if (typeKey === "drone") {
+            entity.type = "drone";
+            entity.manualControl = false; // default to autonomous mode
+          }
+
+          assignWaypoints(entity, nowTime);
+          aircraftEntities.push(entity);
+          spawnedCount++;
+          log(`Spawned basic: ${entityName}, Lon:${item.spawnLon.toFixed(4)}, Lat:${item.spawnLat.toFixed(4)}, speed=${(item.speed||20).toFixed(2)}, traj=${item.trajectoryType||"random"}`);
+        }
+      }
+
+      if (spawnedCount > 0) {
+        viewer.flyTo(viewer.entities).then(() => {
+          log(`Camera adjusted to show newly spawned aircraft (${spawnedCount}).`);
+        });
+      }
+    }
+
+    // ------------------------------------------------------------
+    // 4) Local Path Expansions (skipped if in manual control)
+    // ------------------------------------------------------------
+    function assignWaypoints(entity, referenceTime) {
+      if (entity.manualControl) return;
+      if (!entity.flightParams || !entity.flightParams.trajectoryType) return;
+
+      const trajectoryType = entity.flightParams.trajectoryType;
+      let waypoints = [];
+
+      switch(trajectoryType) {
+        case "random":
+          waypoints = [
+            getRandomWaypoint(entity),
+            getRandomWaypoint(entity),
+            getRandomWaypoint(entity)
+          ];
+          break;
+        case "circular":
+          const center = getRandomWaypoint(entity);
+          const radius = Cesium.Math.lerp(800, 2000, Math.random());
+          waypoints = getCircularWaypoints(center, radius, PATH_POINTS);
+          break;
+        case "linear":
+          const pA = getRandomWaypoint(entity);
+          const pB = getRandomWaypoint(entity);
+          waypoints = getLinearWaypoints(pA, pB, PATH_POINTS);
+          break;
+        default:
+          waypoints = [
+            getRandomWaypoint(entity),
+            getRandomWaypoint(entity),
+            getRandomWaypoint(entity)
+          ];
+      }
+
+      const posProp = entity.position;
+      let lastTime = Cesium.JulianDate.clone(referenceTime);
+      let lastPos = posProp.getValue(referenceTime);
+
+      for (const wp of waypoints) {
+        const tgt = Cesium.Cartesian3.fromDegrees(wp.lon, wp.lat, wp.height);
+        const dist = Cesium.Cartesian3.distance(lastPos, tgt);
+        const speed = entity.flightParams.speed || 20.0;
+        const travelSec = dist / speed;
+        const arrivalTime = Cesium.JulianDate.addSeconds(lastTime, travelSec, new Cesium.JulianDate());
+        posProp.addSample(arrivalTime, tgt);
+        lastPos = tgt;
+        lastTime = arrivalTime;
+      }
+      entity.lastSampleTime = lastTime;
+      log(`${entity.name} assigned ${waypoints.length} local waypoints [${trajectoryType}].`);
+    }
+
+    function getRandomWaypoint(entity) {
+      const lon = Cesium.Math.lerp(OHIO_BOUNDS.west, OHIO_BOUNDS.east, Math.random());
+      const lat = Cesium.Math.lerp(OHIO_BOUNDS.south, OHIO_BOUNDS.north, Math.random());
+      const height = Cesium.Math.lerp(entity.flightParams.minAltitude, entity.flightParams.maxAltitude, Math.random());
+      return { lon, lat, height };
+    }
+
+    function getCircularWaypoints(center, radius, numPoints, startAngle=0) {
+      const ways = [];
+      for (let i = 0; i < numPoints; i++) {
+        const angle = startAngle + (2 * Math.PI / numPoints) * i;
+        const lon = center.lon + (radius / 111320) * Math.cos(angle);
+        const lat = center.lat + (radius / 110540) * Math.sin(angle);
+        const height = Cesium.Math.lerp(center.height - 50, center.height + 50, Math.random());
+        ways.push({ lon, lat, height });
+      }
+      return ways;
+    }
+
+    function getLinearWaypoints(a, b, numPoints) {
+      const ways = [];
+      for (let i = 0; i < numPoints; i++) {
+        const t = i / (numPoints - 1);
+        const lon = Cesium.Math.lerp(a.lon, b.lon, t);
+        const lat = Cesium.Math.lerp(a.lat, b.lat, t);
+        const height = Cesium.Math.lerp(a.height, b.height, t);
+        ways.push({ lon, lat, height });
+      }
+      return ways;
+    }
+
+    // ------------------------------------------------------------
+    // 5) Periodic Path Updates
+    // ------------------------------------------------------------
+    function updatePaths() {
+      const curTime = viewer.clock.currentTime;
+      const wallTime = Cesium.JulianDate.toDate(curTime).getTime() * 1e-3;
+      if (wallTime - lastPathUpdateWallTime < PATH_UPDATE_INTERVAL) return;
+      lastPathUpdateWallTime = wallTime;
+      for (const e of aircraftEntities) {
+        if (e.flightParams && e.flightParams.trajectoryType && !e.manualControl) {
+          assignWaypoints(e, e.lastSampleTime);
+        }
+      }
+      if (aircraftEntities.length > 0) {
+        log(`Extended paths at t=${wallTime.toFixed(1)}s.`);
+      }
+    }
+
+    // ------------------------------------------------------------
+    // 6) Function: Scan Environment over the Field
+    // ------------------------------------------------------------
+    function scanEnvironment(entity) {
+      // Generate waypoints along the field perimeter plus a center point.
+      const fieldWaypoints = [];
+      fieldWaypoints.push({ lon: FIELD_BOUNDS.west, lat: FIELD_BOUNDS.south, height: entity.flightParams.minAltitude + 50 });
+      fieldWaypoints.push({ lon: FIELD_BOUNDS.east, lat: FIELD_BOUNDS.south, height: entity.flightParams.minAltitude + 50 });
+      fieldWaypoints.push({ lon: FIELD_BOUNDS.east, lat: FIELD_BOUNDS.north, height: entity.flightParams.minAltitude + 50 });
+      fieldWaypoints.push({ lon: FIELD_BOUNDS.west, lat: FIELD_BOUNDS.north, height: entity.flightParams.minAltitude + 50 });
+      // Center of the field
+      const centerLon = (FIELD_BOUNDS.west + FIELD_BOUNDS.east) / 2;
+      const centerLat = (FIELD_BOUNDS.south + FIELD_BOUNDS.north) / 2;
+      fieldWaypoints.push({ lon: centerLon, lat: centerLat, height: entity.flightParams.minAltitude + 50 });
+
+      // Reinitialize the position property with new samples for the scan.
+      const posProp = new Cesium.SampledPositionProperty();
+      let nowTime = viewer.clock.currentTime;
+      posProp.addSample(nowTime, entity.position.getValue(nowTime));
+      let timeIncrement = 30; // seconds between waypoints
+      let lastTime = Cesium.JulianDate.clone(nowTime);
+
+      for (let i = 0; i < fieldWaypoints.length; i++) {
+        const wp = fieldWaypoints[i];
+        const tgt = Cesium.Cartesian3.fromDegrees(wp.lon, wp.lat, wp.height);
+        lastTime = Cesium.JulianDate.addSeconds(lastTime, timeIncrement, new Cesium.JulianDate());
+        posProp.addSample(lastTime, tgt);
+        // Schedule a simulated sensor scan at each waypoint.
+        setTimeout(() => {
+          const moisture = (Math.random() * 100).toFixed(1);
+          const ph = (Math.random() * 14).toFixed(2);
+          log(`${entity.name} scan at waypoint ${i+1}: Moisture: ${moisture}%, pH: ${ph}`);
+        }, (i + 1) * timeIncrement * 1000);
+      }
+      entity.position = posProp;
+      log(`${entity.name} is scanning the field.`);
+    }
+
+    // ------------------------------------------------------------
+    // 7) Function: Land and Collect Soil Samples
+    // ------------------------------------------------------------
+    function landAndCollectSoilSamples(entity) {
+      const currentTime = viewer.clock.currentTime;
+      const currentPos = entity.position.getValue(currentTime);
+      if (!currentPos) return;
+      // Convert current position to cartographic coordinates.
+      const cart = Cesium.Cartographic.fromCartesian(currentPos);
+      const lat = Cesium.Math.toDegrees(cart.latitude);
+      const lon = Cesium.Math.toDegrees(cart.longitude);
+      const originalHeight = cart.height;
+      const landingHeight = 10; // simulate landing at 10 meters above ground
+
+      const posProp = new Cesium.SampledPositionProperty();
+      posProp.addSample(currentTime, currentPos);
+      // Simulate descent to landing.
+      const landingTime = Cesium.JulianDate.addSeconds(currentTime, 20, new Cesium.JulianDate());
+      const landingPos = Cesium.Cartesian3.fromDegrees(lon, lat, landingHeight);
+      posProp.addSample(landingTime, landingPos);
+
+      // Schedule soil sample collection.
+      setTimeout(() => {
+        const moisture = (Math.random() * 100).toFixed(1);
+        const ph = (Math.random() * 14).toFixed(2);
+        log(`${entity.name} collected soil sample: Moisture: ${moisture}%, pH: ${ph}`);
+      }, 21000);
+
+      // Simulate takeoff back to original altitude.
+      const takeoffTime = Cesium.JulianDate.addSeconds(currentTime, 40, new Cesium.JulianDate());
+      const takeoffPos = Cesium.Cartesian3.fromDegrees(lon, lat, originalHeight);
+      posProp.addSample(takeoffTime, takeoffPos);
+
+      entity.position = posProp;
+      log(`${entity.name} executing landing for soil sample. Landing at +20s and takeoff at +40s.`);
+    }
+
+    // ------------------------------------------------------------
+    // 8) Keyboard Event Listeners for Drone Functions
+    // ------------------------------------------------------------
+    document.addEventListener("keydown", function(event) {
+      const key = event.key.toLowerCase();
+      // Toggle manual control with 'm'
+      if (key === "m") {
+        aircraftEntities.forEach(entity => {
+          if (entity.type === "drone") {
+            entity.manualControl = !entity.manualControl;
+            log(`${entity.name} manual control ${entity.manualControl ? "activated" : "deactivated"}.`);
+          }
+        });
+      }
+      // Trigger environment scanning with 's'
+      else if (key === "s") {
+        aircraftEntities.forEach(entity => {
+          if (entity.type === "drone" && !entity.manualControl) {
+            scanEnvironment(entity);
+          }
+        });
+      }
+      // Trigger landing and soil sample collection with 'l'
+      else if (key === "l") {
+        aircraftEntities.forEach(entity => {
+          if (entity.type === "drone" && !entity.manualControl) {
+            landAndCollectSoilSamples(entity);
+          }
+        });
+      }
+      // Arrow keys for manual repositioning when in manual control mode.
+      else if (["arrowup", "arrowdown", "arrowleft", "arrowright"].includes(key)) {
+        aircraftEntities.forEach(entity => {
+          if (entity.type === "drone" && entity.manualControl) {
+            const currentTime = viewer.clock.currentTime;
+            const pos = entity.position.getValue(currentTime);
+            if (pos) {
+              const cartographic = Cesium.Cartographic.fromCartesian(pos);
+              let lat = Cesium.Math.toDegrees(cartographic.latitude);
+              let lon = Cesium.Math.toDegrees(cartographic.longitude);
+              const delta = 0.001; // degree change per key press
+              if (key === "arrowup") lat += delta;
+              else if (key === "arrowdown") lat -= delta;
+              else if (key === "arrowleft") lon -= delta;
+              else if (key === "arrowright") lon += delta;
+              const newPos = Cesium.Cartesian3.fromDegrees(lon, lat, cartographic.height);
+              entity.position.addSample(currentTime, newPos);
+              log(`${entity.name} manually repositioned to [${lat.toFixed(4)}, ${lon.toFixed(4)}].`);
+            }
+          }
+        });
+      }
+    });
+
+    // ------------------------------------------------------------
+    // 9) Update Paths on Clock Tick
+    // ------------------------------------------------------------
+    viewer.clock.onTick.addEventListener(updatePaths);
+
+    // ------------------------------------------------------------
+    // 10) Clear All Entities
+    // ------------------------------------------------------------
+    function clearAll() {
+      for (const e of aircraftEntities) {
+        viewer.entities.remove(e);
+      }
+      aircraftEntities = [];
+      log("Cleared all aircraft.");
+    }
+
+    // ------------------------------------------------------------
+    // 11) Initialize Scene over an Ohio Field (e.g., near Columbus)
+    // ------------------------------------------------------------
+    (async function initScene(){
+      await viewer.camera.flyTo({
+        destination: Cesium.Cartesian3.fromDegrees(-82.9988,39.9612,1500),
+        orientation: {
+          heading: Cesium.Math.toRadians(0),
+          pitch:   Cesium.Math.toRadians(-20),
+          roll:    0
+        },
+        duration: 3
+      });
+      log("Scene initialized over Ohio. Ready to spawn drones.");
+    })();
+
+    // ------------------------------------------------------------
+    // 12) Hook up UI Buttons
+    // ------------------------------------------------------------
+    document.getElementById('spawnBtn').addEventListener('click', spawnFromServer);
+    document.getElementById('clearBtn').addEventListener('click', clearAll);
+  </script>
+</body>
+</html>

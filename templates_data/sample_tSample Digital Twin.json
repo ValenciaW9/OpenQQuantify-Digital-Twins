@@ -1,0 +1,28 @@
+{
+  "template_name": "Sample Digital Twin",
+  "description": "A basic example template for a digital twin system.",
+  "components": [
+    {
+      "type": "motor",
+      "id": "motor_001",
+      "parameters": {
+        "rpm": 1500,
+        "voltage": 12
+      },
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    {
+      "type": "robot_arm",
+      "id": "arm_001",
+      "parameters": {
+        "length_cm": 50,
+        "degrees_of_freedom": 6
+      },
+      "x": 5,
+      "y": 0,
+      "z": 0
+    }
+  ]
+}

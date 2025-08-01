@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Manhattan Drone Simulation</title>
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.124/Build/Cesium/Cesium.js"></script>
+  <link href="https://cesium.com/downloads/cesiumjs/releases/1.124/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+  <style>
+    html, body, #cesiumContainer {
+      width: 100%; height: 100%; margin:0; padding:0; overflow:hidden; font-family: sans-serif;
+    }
+    #controls {
+      position: absolute; top:10px; left:10px;
+      background: rgba(42,42,42,0.8); color: #fff; padding:10px; border-radius:4px; font-size:14px; max-width:300px; z-index:1000;
+    }
+    #controls label, #controls button, #controls select { display:block; margin-bottom:10px; }
+    #controls input[type=number], #controls select { width: 100%; padding:5px; border-radius:3px; border: none; }
+    #controls button { width: 100%; padding:8px; border:none; border-radius:3px; background-color: #4CAF50; color:white; cursor:pointer; }
+    #controls button:hover { background-color: #45a049; }
+    #clearBtn { background-color:#f44336 !important; }
+    #log {
+      position: absolute; bottom:0; left:0; width:100%; max-height:150px; overflow-y:auto;
+      background:rgba(0,0,0,0.7); color:#0f0; font-size:12px; padding:5px; font-family: monospace; z-index:1000;
+    }
+  </style>
+</head>
+<body>
+  <div id="cesiumContainer"></div>
+  <div id="controls">
+    <label for="countInput">Number of Drones to Spawn:</label>
+    <input id="countInput" type="number" value="5" min="1" max="1000">
+
+    <button id="spawnBtn">Spawn Drones</button>
+    <button id="clearBtn">Clear Drones</button>
+
+    <p>Drones spawn in front of the camera and follow random trajectories around Manhattan.</p>
+  </div>
+  <div id="log"></div>
+
+  <script type="module">
+    // Set your Cesium Ion access token
+    Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJlNmQzM2IzYy1iNmZmLTQzOTAtODI5NC00MzE2MzY1MTdmOGQiLCJpZCI6MjQxODYyLCJpYXQiOjE3MjY0NTk1MjJ9.XhN4UNgKITt-KoENllwyeEe5CCfcr5QZ1L90ToHUt14';
+
+    // Initialize the Cesium Viewer
+    const viewer = new Cesium.Viewer('cesiumContainer', {
+      terrain: Cesium.Terrain.fromWorldTerrain(),
+      shouldAnimate: true,
+      timeline: false,
+      animation: false,
+      sceneModePicker: false,
+      baseLayerPicker: true,
+      shadows: false,
+      terrainShadows: Cesium.ShadowMode.DISABLED,
+      skyBox: false,
+      skyAtmosphere: false,
+      imageryProvider: Cesium.createWorldImagery(),
+      contextOptions: {
+        webgl: {
+          alpha: false
+        }
+      }
+    });
+
+    // Drone Billboard Image
+    const droneBillboardImage = 'https://cdn-icons-png.flaticon.com/512/684/684908.png'; // Replace with your preferred icon
+
+    // Logging function with throttling
+    let logThrottle = false;
+    function log(msg) {
+      if (logThrottle) return; // Throttle to prevent excessive logging
+      logThrottle = true;
+      const logDiv = document.getElementById('log');
+      const time = new Date().toLocaleTimeString();
+      logDiv.textContent += `[${time}] ${msg}\n`;
+      logDiv.scrollTop = logDiv.scrollHeight;
+      setTimeout(() => { logThrottle = false; }, 500); // Adjust throttle delay as needed
+    }
+
+    // Function to spawn drones via backend API
+    async function spawnDrones(count) {
+      try {
+        const response = await fetch('http://127.0.0.1:5000/api/spawn_drones', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ count: count })
+        });
+        const data = await response.json();
+        if (response.ok) {
+          log(`${data.spawned.length} drone(s) spawned.`);
+        } else {
+          log(`Error spawning drones: ${data.error}`);
+        }
+      } catch (error) {
+        log(`Error connecting to backend: ${error}`);
+      }
+    }
+
+    // Function to clear drones via backend API
+    async function clearDrones() {
+      try {
+        const response = await fetch('http://127.0.0.1:5000/api/clear_drones', {
+          method: 'POST'
+        });
+        const data = await response.json();
+        if (response.ok) {
+          viewer.entities.removeAll();
+          log(`All drones cleared.`);
+        } else {
+          log(`Error clearing drones: ${data.error}`);
+        }
+      } catch (error) {
+        log(`Error connecting to backend: ${error}`);
+      }
+    }
+
+    // Function to fetch drone data from backend
+    async function fetchDrones() {
+      try {
+        const response = await fetch('http://127.0.0.1:5000/api/get_drones');
+        const data = await response.json();
+        if (response.ok) {
+          updateDrones(data.drones);
+        } else {
+          log(`Error fetching drones: ${data.error}`);
+        }
+      } catch (error) {
+        log(`Error connecting to backend: ${error}`);
+      }
+    }
+
+    // Dictionary to keep track of existing drone entities
+    const droneEntities = {};
+
+    // Function to update drones on the Cesium map
+    function updateDrones(drones) {
+      const existingDroneIds = new Set(Object.keys(droneEntities));
+      drones.forEach(drone => {
+        existingDroneIds.delete(drone.id); // Remove existing drones that are still present
+
+        if (droneEntities[drone.id]) {
+          // Update existing drone position
+          droneEntities[drone.id].position = Cesium.Cartesian3.fromDegrees(drone.position.lon, drone.position.lat, drone.position.height);
+        } else {
+          // Create new drone entity
+          const entity = viewer.entities.add({
+            id: drone.id,
+            position: Cesium.Cartesian3.fromDegrees(drone.position.lon, drone.position.lat, drone.position.height),
+            billboard: {
+              image: droneBillboardImage,
+              scale: 1.0,
+              verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+              heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+            },
+            label: {
+              text: `Drone ${drone.id.substring(0, 5)}`,
+              font: '10pt sans-serif',
+              fillColor: Cesium.Color.YELLOW,
+              outlineColor: Cesium.Color.BLACK,
+              style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+              verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+              show: false // Set to true if you want to show labels
+            }
+          });
+          droneEntities[drone.id] = entity;
+        }
+      });
+
+      // Remove drones that no longer exist
+      existingDroneIds.forEach(droneId => {
+        viewer.entities.remove(droneEntities[droneId]);
+        delete droneEntities[droneId];
+      });
+    }
+
+    // Event listeners for buttons
+    document.getElementById('spawnBtn').addEventListener('click', () => {
+      const count = parseInt(document.getElementById('countInput').value, 10);
+      if (isNaN(count) || count < 1 || count > 1000) {
+        log("Please enter a valid number of drones to spawn (1-1000).");
+        return;
+      }
+      spawnDrones(count);
+    });
+
+    document.getElementById('clearBtn').addEventListener('click', () => {
+      clearDrones();
+    });
+
+    // Periodically fetch drone data every second
+    setInterval(fetchDrones, 1000);
+
+    // Initialize the scene: fly to Manhattan and add buildings
+    async function initializeScene() {
+      // Fly camera to Midtown Manhattan
+      await viewer.camera.flyTo({
+        destination: Cesium.Cartesian3.fromDegrees(-73.9855, 40.7580, 1500),
+        orientation: {
+          heading: Cesium.Math.toRadians(0.0),
+          pitch: Cesium.Math.toRadians(-20.0),
+          roll: 0.0
+        },
+        duration: 3 // seconds
+      });
+
+      // Add OSM Buildings for contextual detail
+      const buildingTileset = await Cesium.createOsmBuildingsAsync();
+      viewer.scene.primitives.add(buildingTileset);
+
+      log("Scene initialized. Ready. No drones spawned yet.");
+    }
+
+    // Start the simulation
+    initializeScene();
+
+  </script>
+</body>
+</html>

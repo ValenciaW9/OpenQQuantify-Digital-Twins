@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>OpenQQuantify Digital Twin</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.106/Build/Cesium/Cesium.js"></script>
+</head>
+
+<body>
+  <header>
+    <h1>Welcome to OpenQQuantify</h1>
+  </header>
+
+  <main>
+    <p>This is the starting page for your Digital Twin project.</p>
+
+    <!-- Digital Twin Controls -->
+    <section>
+      <input type="file" id="modelUpload" />
+      <button onclick="uploadToCesium(document.getElementById('modelUpload').files[0])">Upload 3D Model</button>
+
+      <div id="motor-status">Motor RPM: --</div>
+      <button onclick="startMotorSimulation()">Start Motor</button>
+
+      <div id="arm-status">Arm Position: --</div>
+      <button onclick="moveRobotArm()">Move Arm</button>
+
+      <div id="temp-status">Temperature: --</div>
+      <button onclick="fetch('/api/iot')
+        .then(res => res.json())
+        .then(data => {
+          document.getElementById('temp-status').innerText = `Temperature: ${data.temperature}°C`;
+        })">Read Temp</button>
+    </section>
+
+    <!-- Cesium Viewer -->
+    <section>
+      <h2>3D Cesium Viewer</h2>
+      <div id="cesiumContainer" style="width: 100%; height: 500px;"></div>
+    </section>
+
+    <!-- BOM Section -->
+    <section>
+      <h2>Build Your Bill of Materials</h2>
+      <form id="bom-form">
+        <label>Select Components:</label><br />
+        <input type="checkbox" name="components" value="arduino_nano" /> Arduino Nano<br />
+        <input type="checkbox" name="components" value="raspberry_pi_4" /> Raspberry Pi 4<br />
+        <input type="checkbox" name="components" value="nvidia_jetson_nano" /> Jetson Nano<br />
+        <input type="checkbox" name="components" value="esp32_devkit" /> ESP32 Dev Kit<br />
+        <input type="checkbox" name="components" value="temperature_sensor" /> Temperature Sensor<br />
+        <input type="checkbox" name="components" value="motor_driver" /> Motor Driver<br />
+        <input type="checkbox" name="components" value="servo_motor" /> Servo Motor<br />
+        <input type="checkbox" name="components" value="led_array" /> LED Array<br />
+        <input type="checkbox" name="components" value="lcd_display" /> LCD Display<br />
+        <input type="checkbox" name="components" value="voltage_regulator" /> Voltage Regulator<br /><br />
+        <button type="button" onclick="generateBOM()">Generate BOM</button>
+        <button type="button" onclick="checkout()">Checkout</button>
+      </form>
+
+      <div id="bom-output" style="margin-top: 20px;"></div>
+    </section>
+
+    <!-- Image Gallery -->
+    <section id="image-gallery">
+      <h2>Model Previews</h2>
+      <img src="/static/images/building.png" alt="Building" />
+      <img src="/static/images/drone.png" alt="Drone" />
+      <img src="/static/images/vehicle.png" alt="Vehicle" />
+    </section>
+  </main>
+
+  <!-- Cesium Setup -->
+  <script>
+    Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJlNmQzM2IzYy1iNmZmLTQzOTAtODI5NC00MzE2MzY1MTdmOGQiLCJpZCI6MjQxODYyLCJpYXQiOjE3MjY0NTk1MjJ9.XhN4UNgKITt-KoENllwyeEe5CCfcr5QZ1L90ToHUt14";
+    const viewer = new Cesium.Viewer("cesiumContainer", {
+      terrainProvider: Cesium.createWorldTerrain(),
+      shouldAnimate: true
+    });
+    viewer.scene.globe.enableLighting = true;
+  </script>
+
+  <!-- Custom JS -->
+  <script src="/static/js/cesium_controller.js"></script>
+  <script src="/static/js/editor.js"></script>
+  <script src="/static/js/viewer.js"></script>
+
+  <!-- BOM Logic -->
+  <script>
+    let selectedComponents = [];
+
+    function getSelectedComponents() {
+      selectedComponents = [];
+      document.querySelectorAll('input[name="components"]:checked').forEach(el => {
+        selectedComponents.push(el.value);
+      });
+      return selectedComponents;
+    }
+
+    function generateBOM() {
+      const components = getSelectedComponents();
+      if (components.length === 0) {
+        alert("Please select at least one component.");
+        return;
+      }
+
+      fetch("/api/bom", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ components })
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.error) {
+          document.getElementById("bom-output").innerHTML = `<p style="color: red;">${data.error}</p>`;
+        } else {
+          const bomHtml = data.bill_of_materials.map(item =>
+            `<li>${item.name} - $${item.price_with_markup.toFixed(2)}</li>`
+          ).join("");
+          document.getElementById("bom-output").innerHTML = `
+            <h3>Your BOM:</h3>
+            <ul>${bomHtml}</ul>
+            <p><strong>Total:</strong> $${data.total.toFixed(2)}</p>
+          `;
+        }
+      })
+      .catch(error => {
+        console.error("Error:", error);
+      });
+    }
+
+    function checkout() {
+      const components = getSelectedComponents();
+      if (components.length === 0) {
+        alert("Please select at least one component.");
+        return;
+      }
+
+      fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ components })
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.checkout_url) {
+          window.location.href = data.checkout_url;
+        } else {
+          alert("Failed to create checkout session.");
+        }
+      })
+      .catch(error => {
+        console.error("Checkout Error:", error);
+      });
+    }
+  </script>
+</body>
+</html>
